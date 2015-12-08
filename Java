@@ -1,0 +1,158 @@
+Java Concurrency Constructs
+
+This set of excerpts includes the three main presentations of Java concurrency constructs in the second edition.
+Contents:
+Threads
+Synchronization
+Monitors
+Threads
+
+A thread is a call sequence that executes independently of others, while at the same time possibly sharing underlying system resources such as files, as well as accessing other objects constructed within the same program (see �1.2.2). A java.lang.Thread object maintains bookkeeping and control for this activity.
+Every program consists of at least one thread - the one that runs the main method of the class provided as a startup argument to the Java virtual machine ("JVM"). Other internal background threads may also be started during JVM initialization. The number and nature of such threads vary across JVM implementations. However, all user-level threads are explicitly constructed and started from the main thread, or from any other threads that they in turn create.
+
+Here is a summary of the principal methods and properties of class Thread, as well as a few usage notes. They are further discussed and illustrated throughout this book. The JavaTM Language Specification ("JLS") and the published API documentation should be consulted for more detailed and authoritative descriptions.
+
+Construction
+
+Different Thread constructors accept combinations of arguments supplying:
+A Runnable object, in which case a subsequent Thread.start invokes run of the supplied Runnable object. If no Runnable is supplied, the default implementation of Thread.run returns immediately.
+A String that serves as an identifier for the Thread. This can be useful for tracing and debugging, but plays no other role.
+The ThreadGroup in which the new Thread should be placed. If access to the ThreadGroup is not allowed, a SecurityException is thrown.
+Class Thread itself implements Runnable. So, rather than supplying the code to be run in a Runnable and using it as an argument to a Thread constructor, you can create a subclass of Thread that overrides the run method to perform the desired actions. However, the best default strategy is to define a Runnable as a separate class and supply it in a Thread constructor. Isolating code within a distinct class relieves you of worrying about any potential interactions of synchronized methods or blocks used in the Runnable with any that may be used by methods of class Thread. More generally, this separation allows independent control over the nature of the action and the context in which it is run: The same Runnable can be supplied to threads that are otherwise initialized in different ways, as well as to other lightweight executors (see �4.1.4). Also note that subclassing Thread precludes a class from subclassing any other class.
+Thread objects also possess a daemon status attribute that cannot be set via any Thread constructor, but may be set only before a Thread is started. The method setDaemon asserts that the JVM may exit, abruptly terminating the thread, so long as all other non-daemon threads in the program have terminated. The isDaemon method returns status. The utility of daemon status is very limited. Even background threads often need to do some cleanup upon program exit. (The spelling of daemon, often pronounced as "day-mon", is a relic of systems programming tradition. System daemons are continuous processes, for example print-queue managers, that are "always" present on a system.)
+
+Starting threads
+
+Invoking its start method causes an instance of class Thread to initiate its run method as an independent activity. None of the synchronization locks held by the caller thread are held by the new thread (see �2.2.1).
+A Thread terminates when its run method completes by either returning normally or throwing an unchecked exception (i.e., RuntimeException, Error, or one of their subclasses). Threads are not restartable, even after they terminate. Invoking start more than once results in an InvalidThreadStateException.
+
+The method isAlive returns true if a thread has been started but has not terminated. It will return true if the thread is merely blocked in some way. JVM implementations have been known to differ in the exact point at which isAlive returns false for threads that have been cancelled (see �3.1.2). There is no method that tells you whether a thread that is not isAlive has ever been started. Also, one thread cannot readily determine which other thread started it, although it may determine the identities of other threads in its ThreadGroup (see �1.1.2.6).
+
+Priorities
+
+To make it possible to implement the Java virtual machine across diverse hardware platforms and operating systems, the Java programming language makes no promises about scheduling or fairness, and does not even strictly guarantee that threads make forward progress (see �3.4.1.5). But threads do support priority methods that heuristically influence schedulers:
+Each Thread has a priority, ranging between Thread.MIN_PRIORITY and Thread.MAX_PRIORITY (defined as 1 and 10 respectively).
+By default, each new thread has the same priority as the thread that created it. The initial thread associated with a main by default has priority Thread.NORM_PRIORITY (5).
+The current priority of any thread can be accessed via method getPriority.
+The priority of any thread can be dynamically changed via method setPriority. The maximum allowed priority for a thread is bounded by its ThreadGroup.
+When there are more runnable (see �1.3.2) threads than available CPUs, a scheduler is generally biased to prefer running those with higher priorities. The exact policy may and does vary across platforms. For example, some JVM implementations always select the thread with the highest current priority (with ties broken arbitrarily). Some JVM implementations map the ten Thread priorities into a smaller number of system-supported categories, so threads with different priorities may be treated equally. And some mix declared priorities with aging schemes or other scheduling policies to ensure that even low-priority threads eventually get a chance to run. Also, setting priorities may, but need not, affect scheduling with respect to other programs running on the same computer system.
+Priorities have no other bearing on semantics or correctness (see �1.3). In particular, priority manipulations cannot be used as a substitute for locking. Priorities can be used only to express the relative importance or urgency of different threads, where these priority indications would be useful to take into account when there is heavy contention among threads trying to get a chance to execute. For example, setting the priorities of the particle animation threads in ParticleApplet below that of the applet thread constructing them might on some systems improve responsiveness to mouse clicks, and would at least not hurt responsiveness on others. But programs should be designed to run correctly (although perhaps not as responsively) even if setPriority is defined as a no-op. (Similar remarks hold for yield; see �1.1.2.5.)
+
+The following table gives one set of general conventions for linking task categories to priority settings. In many concurrent applications, relatively few threads are actually runnable at any given time (others are all blocked in some way), in which case there is little reason to manipulate priorities. In other cases, minor tweaks in priority settings may play a small part in the final tuning of a concurrent system.
+
+Range	Use
+10	Crisis management
+7-9	Interactive, event-driven
+4-6	IO-bound
+2-3	Background computation
+1	Run only if nothing else can
+Control methods
+
+Only a few methods are available for communicating across threads:
+Each Thread has an associated boolean interruption status (see �3.1.2). Invoking t.interrupt for some Thread t sets t's interruption status to true, unless Thread t is engaged in Object.wait, Thread.sleep, or Thread.join; in this case interrupt causes these actions (in t) to throw InterruptedException, but t's interruption status is set to false.
+The interruption status of any Thread can be inspected using method isInterrupted. This method returns true if the thread has been interrupted via the interrupt method but the status has not since been reset either by the thread invoking Thread.interrupted (see �1.1.2.5) or in the course of wait, sleep, or join throwing InterruptedException.
+Invoking t.join() for Thread t suspends the caller until the target Thread t completes: the call to t.join() returns when t.isAlive() is false (see �4.3.2). A version with a (millisecond) time argument returns control even if the thread has not completed within the specified time limit. Because of how isAlive is defined, it makes no sense to invoke join on a thread that has not been started. For similar reasons, it is unwise to try to join a Thread that you did not create.
+Originally, class Thread supported the additional control methods suspend, resume, stop, and destroy. Methods suspend, resume, and stop have since been deprecated; method destroy has never been implemented in any release and probably never will be. The effects of methods suspend and resume can be obtained more safely and reliably using the waiting and notification techniques discussed in �3.2. The problems surrounding stop are discussed in �3.1.2.3.
+Static methods
+
+Some Thread class methods are designed to be applied only to the thread that is currently running (i.e., the thread making the call to the Thread method). To enforce this, these methods are declared as static.
+Thread.currentThread returns a reference to the current Thread. This reference may then be used to invoke other (non-static) methods. For example, Thread.currentThread().getPriority() returns the priority of the thread making the call.
+Thread.interrupted clears interruption status of the current Thread and returns previous status. (Thus, one Thread's interruption status cannot be cleared from other threads.)
+Thread.sleep(long msecs) causes the current thread to suspend for at least msecs milliseconds (see �3.2.2).
+Thread.yield is a purely heuristic hint advising the JVM that if there are any other runnable but non-running threads, the scheduler should run one or more of these threads rather than the current thread. The JVM may interpret this hint in any way it likes.
+Despite the lack of guarantees, yield can be pragmatically effective on some single-CPU JVM implementations that do not use time-sliced pre-emptive scheduling (see �1.2.2). In this case, threads are rescheduled only when one blocks (for example on IO, or via sleep). On these systems, threads that perform time-consuming non-blocking computations can tie up a CPU for extended periods, decreasing the responsiveness of an application. As a safeguard, methods performing non-blocking computations that might exceed acceptable response times for event handlers or other reactive threads can insert yields (or perhaps even sleeps) and, when desirable, also run at lower priority settings. To minimize unnecessary impact, you can arrange to invoke yield only occasionally; for example, a loop might contain: 
+if (Math.random() < 0.01) Thread.yield();
+
+On JVM implementations that employ pre-emptive scheduling policies, especially those on multiprocessors, it is possible and even desirable that the scheduler will simply ignore this hint provided by yield.
+
+ThreadGroups
+
+Every Thread is constructed as a member of a ThreadGroup, by default the same group as that of the Thread issuing the constructor for it. ThreadGroups nest in a tree-like fashion. When an object constructs a new ThreadGroup, it is nested under its current group. The method getThreadGroup returns the group of any thread. The ThreadGroup class in turn supports methods such as enumerate that indicate which threads are currently in the group.
+One purpose of class ThreadGroup is to support security policies that dynamically restrict access to Thread operations; for example, to make it illegal to interrupt a thread that is not in your group. This is one part of a set of protective measures against problems that could occur, for example, if an applet were to try to kill the main screen display update thread. ThreadGroups may also place a ceiling on the maximum priority that any member thread can possess.
+
+ThreadGroups tend not to be used directly in thread-based programs. In most applications, normal collection classes (for example java.util.Vector) are better choices for tracking groups of Thread objects for application-dependent purposes.
+
+Among the few ThreadGroup methods that commonly come into play in concurrent programs is method uncaughtException, which is invoked when a thread in a group terminates due to an uncaught unchecked exception (for example a NullPointerException). This method normally causes a stack trace to be printed.
+
+Synchronization
+
+Objects and locks
+
+Every instance of class Object and its subclasses possesses a lock. Scalars of type int, float, etc., are not Objects. Scalar fields can be locked only via their enclosing objects. Individual fields cannot be marked as synchronized. Locking may be applied only to the use of fields within methods. However, as described in �2.2.7.4, fields can be declared as volatile, which affects atomicity, visibility, and ordering properties surrounding their use.
+Similarly, array objects holding scalar elements possess locks, but their individual scalar elements do not. (Further, there is no way to declare array elements as volatile.) Locking an array of Objects does not automatically lock all its elements. There are no constructs for simultaneously locking multiple objects in a single atomic operation.
+
+Class instances are Objects. As described below, the locks associated with Class objects are used in static synchronized methods.
+
+Synchronized methods and blocks
+
+There are two syntactic forms based on the synchronized keyword, blocks and methods. Block synchronization takes an argument of which object to lock. This allows any method to lock any object. The most common argument to synchronized blocks is this.
+Block synchronization is considered more fundamental than method synchronization. A declaration:
+synchronized void f() { /* body */ } 
+is equivalent to: 
+void f() { synchronized(this) { /* body */ } }
+
+The synchronized keyword is not considered to be part of a method's signature. So the synchronized modifier is not automatically inherited when subclasses override superclass methods, and methods in interfaces cannot be declared as synchronized. Also, constructors cannot be qualified as synchronized (although block synchronization can be used within constructors).
+
+Synchronized instance methods in subclasses employ the same lock as those in their superclasses. But synchronization in an inner class method is independent of its outer class. However, a non-static inner class method can lock its containing class, say OuterClass, via code blocks using: 
+synchronized(OuterClass.this) { /* body */ }.
+
+Acquiring and releasing locks
+
+Locking obeys a built-in acquire-release protocol controlled only by use of the synchronized keyword. All locking is block-structured. A lock is acquired on entry to a synchronized method or block, and released on exit, even if the exit occurs due to an exception. You cannot forget to release a lock.
+Locks operate on a per-thread, not per-invocation basis. A thread hitting synchronized passes if the lock is free or the thread already possess the lock, and otherwise blocks. (This reentrant or recursive locking differs from the default policy used for example in POSIX threads.) Among other effects, this allows one synchronized method to make a self-call to another synchronized method on the same object without freezing up.
+
+A synchronized method or block obeys the acquire-release protocol only with respect to other synchronized methods and blocks on the same target object. Methods that are not synchronized may still execute at any time, even if a synchronized method is in progress. In other words, synchronized is not equivalent to atomic, but synchronization can be used to achieve atomicity.
+
+When one thread releases a lock, another thread may acquire it (perhaps the same thread, if it hits another synchronized method). But there is no guarantee about which of any blocked threads will acquire the lock next or when they will do so. (In particular, there are no fairness guarantees - see �3.4.1.5.) There is no mechanism to discover whether a given lock is being held by some thread.
+
+As discussed in �2.2.7, in addition to controlling locking, synchronized also has the side-effect of synchronizing the underlying memory system.
+
+Statics
+
+Locking an object does not automatically protect access to static fields of that object's class or any of its superclasses. Access to static fields is instead protected via synchronized static methods and blocks. Static synchronization employs the lock possessed by the Class object associated with the class the static methods are declared in. The static lock for class C can also be accessed inside instance methods via:
+synchronized(C.class) { /* body */ }
+The static lock associated with each class is unrelated to that of any other class, including its superclasses. It is not effective to add a new static synchronized method in a subclass that attempts to protect static fields declared in a superclass. Use the explicit block version instead.
+
+It is also poor practice to use constructions of the form: 
+synchronized(getClass()) { /* body */ } // Do not use
+
+This locks the actual class, which might be different from (a subclass of) the class defining the static fields that need protecting.
+
+The JVM internally obtains and releases the locks for Class objects during class loading and initialization. Unless you are writing a special ClassLoader or holding multiple locks during static initialization sequences, these internal mechanics cannot interfere with the use of ordinary methods and blocks synchronized on Class objects. No other internal JVM actions independently acquire any locks for any objects of classes that you create and use. However, if you subclass java.* classes, you should be aware of the locking policies used in these classes.
+
+Monitors
+
+In the same way that every Object has a lock (see �2.2.1), every Object has a wait set that is manipulated only by methods wait, notify, notifyAll, and Thread.interrupt. Entities possessing both locks and wait sets are generally called monitors (although almost every language defines details somewhat differently). Any Object can serve as a monitor.
+The wait set for each object is maintained internally by the JVM. Each set holds threads blocked by wait on the object until corresponding notifications are invoked or the waits are otherwise released.
+
+Because of the way in which wait sets interact with locks, the methods wait, notify, and notifyAll may be invoked only when the synchronization lock is held on their targets. Compliance generally cannot be verified at compile time. Failure to comply causes these operations to throw an IllegalMonitorStateException at run time.
+
+The actions of these methods are as follows:
+
+Wait
+A wait invocation results in the following actions:
+If the current thread has been interrupted, then the method exits immediately, throwing an InterruptedException. Otherwise, the current thread is blocked.
+The JVM places the thread in the internal and otherwise inaccessible wait set associated with the target object.
+The synchronization lock for the target object is released, but all other locks held by the thread are retained. A full release is obtained even if the lock is re-entrantly held due to nested synchronized calls on the target object. Upon later resumption, the lock status is fully restored.
+Notify
+A notify invocation results in the following actions:
+If one exists, an arbitrarily chosen thread, say T, is removed by the JVM from the internal wait set associated with the target object. There is no guarantee about which waiting thread will be selected when the wait set contains more than one thread - see �3.4.1.5.
+T must re-obtain the synchronization lock for the target object, which will always cause it to block at least until the thread calling notify releases the lock. It will continue to block if some other thread obtains the lock first.
+T is then resumed from the point of its wait.
+NotifyAll
+A notifyAll works in the same way as notify except that the steps occur (in effect, simultaneously) for all threads in the wait set for the object. However, because they must acquire the lock, threads continue one at a time.
+Interrupt
+If Thread.interrupt is invoked for a thread suspended in a wait, the same notify mechanics apply, except that after re-acquiring the lock, the method throws an InterruptedException and the thread's interruption status is set to false. If an interrupt and a notify occur at about the same time, there is no guarantee about which action has precedence, so either result is possible. (Future revisions of JLS may introduce deterministic guarantees about these outcomes.)
+Timed Waits
+The timed versions of the wait method, wait(long msecs) and wait(long msecs, int nanosecs), take arguments specifying the desired maximum time to remain in the wait set. They operate in the same way as the untimed version except that if a wait has not been notified before its time bound, it is released automatically. There is no status indication differentiating waits that return via notifications versus time-outs. Counterintuitively, wait(0) and wait(0, 0) both have the special meaning of being equivalent to an ordinary untimed wait().
+A timed wait may resume an arbitrary amount of time after the requested bound due to thread contention, scheduling policies, and timer granularities. (There is no guarantee about granularity. Most JVM implementations have observed response times in the 1-20ms range for arguments less than 1ms.)
+
+The Thread.sleep(long msecs) method uses a timed wait, but does not tie up the current object's synchronization lock. It acts as if it were defined as:
+
+    if (msecs != 0)  {
+      Object s = new Object(); 
+      synchronized(s) { s.wait(msecs); }
+    }
+Of course, a system need not implement sleep in exactly this way. Note that sleep(0) pauses for at least no time, whatever that means.
+Doug Lea
+Last modified: Sun Oct 17 14:21:45 EDT 1999
